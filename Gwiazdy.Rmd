@@ -1,0 +1,394 @@
+---
+title: "EDA-Gwiazdy"
+author: "Łukasz Maczek"
+date: "2023-11-30"
+output: 
+  html_document:
+    theme: journal
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+# Wprowadzenie
+
+Badany przeze mnie zestaw danych, nazwany przeze mnie `stars` pochodzi ze strony kaggle.com i nazywa się "*Star dataset to predict star types*". 
+
+Składa się z 240 obserwacji i 7 zmiennych, które opisują różne gwiazdy.
+
+# Zmienne w zestawie danych
+
+- `Temperature` (Temperatura) - jest ona podawana w Kelwinach,
+- `Luminosity` (Jasność) - jest podawana jako procent Jasności Słońca, przy jej obliczaniu ma wpływ odległość gwiazdy od obserwatora, zatem im gwiazda jest dalej, tym będzie mniej jasna,
+- `Radius` (Promień) - jest on podawany jako procent promienia Słońca,
+- `Absolute magnitude` (Absolutna Wielkość Gwiazdowa) - przyjmuje wartości z przedziału **[-30, 30]** i oznacza jasność gwiazdy, gdyby była położona w odległości 10 **parseków** od obserwatora (1 parsek to około 3,26 lat świetlnych), im mniejsza wartość, tym gwiazda jest jaśniejsza, zatem w tym przypadku nie ma znaczenia realna odległość gwiazdy od obserwatora, zakładamy, że wszystkie są w takiej samej, opisanej już przeze mnie wcześniej,
+- `Star type` (Typ Gwiazdy) - w tym zbiorze danych oznacza typ gwiazdy ze względu na jej właściowści, takie jak wielkość, temperatura oraz jasność, jest oznaczony cyframi od 0 do 5, gdzie:
+  a. **0** - oznacza Brązowe Karły
+  b. **1** - oznacza Czerwone Karły
+  c. **2** - oznacza Białe Karły
+  d. **3** - oznacza Gwiazdy z ciągu głównego (main sequence)
+  e. **4** - Giganty
+  f. **5** - Supergiganty
+  
+- `Star color` (Kolor gwiazdy) - oznacza kolor danej gwiazdy, główne kolory to niebieski, żółty, pomarańczowy i czerwony, występują jednak one również z domieszkami koloru białego,
+- `Spectral class` (Typ Spektralny) - oznacza typ spektralny gwiazdy, gdzie stosujemy oznaczenia  od gwiazd najgorętszych do najchłodniejszych (O, B, A, F, G, K, M), ponieważ to przede wszystkim temperatura wpływa na to jakie pierwiastki są widoczne na spektrum, a które nie
+
+  a. Klasa O: Gwiazdy bardzo gorące, jasne, o błękitnym kolorze.
+  b. Klasa B: Gorące, ale nieco chłodniejsze niż gwiazdy typu O, o błękitnym lub białym kolorze.
+  c. Klasa A: Gwiazdy białe lub białoniebieskie, o niższej temperaturze niż gwiazdy typu B.
+  d. Klasa F: Jasno-żółte gwiazdy o niższej temperaturze niż gwiazdy typu A.
+  e. Klasa G: Gwiazdy żółte, do których należy nasze Słońce.
+  f. Klasa K: Pomarańczowe gwiazdy o niższej temperaturze niż gwiazdy typu G.
+  g. Klasa M: Czerwone gwiazdy, najzimniejsze w tej klasyfikacji.
+
+# Potrzebne pakiety
+```{r message=FALSE, warning=FALSE}
+library(mice)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+```
+
+# Wczytanie pliku i jego sprawdzenie
+Na początku rozpoczniemy od wczytania naszego zestawu danych:
+```{r}
+stars <- read.csv("C:/Rfile/star_class.csv", sep = ",")
+```
+Zmienimy nazwy zmiennych, aby łatwiej się na nich pracowało:
+```{r}
+colnames(stars) <- c("Temperatura", "Jasność", 
+                          "Promień", "Abs_Wielk_Gwiazd",
+                          "Typ", "Kolor", "Typ_Spektralny")
+```
+
+Sprawdzamy strukturę pliku, przy użyciu funkcji `str()`
+```{r}
+str(stars)
+```
+# Zmiany w zestawie danych
+Jak możemy zauważyć w tym zestawie danych są zmienne liczbowe, oraz tekstowe, w następnym kroku zmienimy zmienne tekstowe oraz zmienną Star.type (ponieważ opisuje ona typy gwiazd od 0 do 5) na zmienne typu factor, ułatwi nam to późniejsze operacje.
+```{r}
+stars$Typ <- as.factor(stars$Typ)
+stars$Kolor <- as.factor(stars$Kolor)
+stars$Typ_Spektralny <- as.factor(stars$Typ_Spektralny)
+```
+```{r}
+summary(stars$Typ)
+```
+Jak widzimy, jest po 40 gwiazd z każdego typu.
+```{r}
+summary(stars$Typ_Spektralny)
+```
+Najwięcej gwiazd jest typu M.
+```{r}
+summary(stars$Kolor)
+```
+Kolory gwiazd powtarzają się i mają nazwy różniące się niewiele, jednak wpływa to na błędne grupowanie w typie factor, dlatego zmienimy to w następujący sposób:
+```{r}
+stars$Kolor[stars$Kolor == "Blue White"] <- "Blue-White"
+stars$Kolor[stars$Kolor == "Blue white "] <- "Blue-White"
+stars$Kolor[stars$Kolor == "Blue white"] <- "Blue-White"
+stars$Kolor[stars$Kolor == "Blue-white"] <- "Blue-White"
+stars$Kolor[stars$Kolor == "Blue "] <- "Blue"
+stars$Kolor[stars$Kolor == "white"] <- "White"
+stars$Kolor[stars$Kolor == "yellow-white"] <- "White-Yellow"
+stars$Kolor[stars$Kolor == "yellowish"] <- "Yellowish"
+```
+Sprawdzamy czy zadziałało:
+```{r}
+summary(stars$Kolor)
+```
+Niestety powstały, grupy nie zawierające żadnej wartości, zatem zajmiemy się ich usunięciem korzystając z funkcji `droplevels()`:
+```{r}
+#znajdujemy niepotrzebne nazwy...
+poziom_usuwamy <- c("Blue ", "Blue-white", "Blue white", "Blue White", 
+                    "Blue white ", "white", "yellow-white", "yellowish")
+#... i usuwamy je
+stars <- droplevels(stars, exclude = poziom_usuwamy)
+```
+Teraz już jest wszystko dobrze :)
+```{r}
+summary(stars$Kolor)
+```
+Zostało nam sprawdzenie czy występują braki danych w zestawie przy użyciu funkcji `md.pattern()` z pakietu **mice** :
+```{r}
+md.pattern(stars, rotate.names = T)
+```
+Braków danych nie ma, nasz zbiór danych jest gotowy do pracy na nim.
+```{r}
+str(stars)
+```
+```{r}
+summary(stars)
+```
+# Analiza Danych
+
+Na początku sprawdzimy rozkład naszych zmiennych:
+
+- Temperatura
+```{r}
+hist(stars$Temperatura, col = "lightblue", border = "darkblue",
+     main = "Histogram Temperatury", xlab = "Temperatura (K)", ylab = "Ilość")
+```
+```{r}
+summary(stars$Temperatura)
+```
+
+Analizując wykres i własności Temperatury przy użyciu funkcji `summary()`, możemy zauważyć, że mamy do czynienia z prawostronną skośnością rozkładu.
+
+- Jasność
+```{r}
+stars %>%
+  ggplot() +
+  geom_density(aes(x = Jasność), fill = "green")+
+  theme_light()
+```
+```{r}
+summary(stars$Jasność)
+quantile(stars$Jasność, probs = c(0.25, 0.5, 0.6, 0.75, 0.9, 0.99))
+```
+
+Niektóre wyniki są zapisane przy użyciu notacji wykładniczej, gdzie **e+05** oznacza że podaną wcześniej liczbę mnożymy razy **10** do potęgi **5**, podanej po plusie(lub minusie). Dlatego przy małych wartościach użyta jest **e-**, a przy dużych **e+**.
+
+Podobnie jak w przypadku Temperatury, na powyższym wykresie możemy dostrzeć zdecydowany rozkład skośny (prawostronny). Większość obserwacji osiąga małe wartości (poniżej 1), jednak występują też wartości odstające o bardzo dużej jasności, sięgającej nawet powyżej 800 tysięcy.
+
+- Promień
+```{r}
+stars %>%
+  ggplot() +
+  geom_boxplot(aes(x = Promień))+
+  theme_light()+
+  labs(title = "Długość promienia gwiazd")
+```
+
+Na wykresie pudełowym z wąsem, możemy zauważyć, że znaczna większość obserwacji ma bardzo mały promień oraz jest sporo wartości odstających.
+```{r}
+summary(stars$Promień)
+quantile(stars$Promień, probs = c(0.25, 0.5, 0.6, 0.75, 0.9, 0.95, 0.99))
+```
+
+Potwierdza to analiza konkretnych kwantyli, widzimy, że conajmniej połowa badanych gwiazd jest mniejsza niż Słońce, a wartości mocno odstające znajdują się daleko od trzeciego kwartyla.
+
+- Absolutna Wielkość Gwiazdowa
+```{r}
+stars %>%
+  ggplot() +
+  geom_histogram(aes(x = Abs_Wielk_Gwiazd), 
+                 fill = "lightblue", 
+                 col = "darkblue",
+                 bins = 12)+
+  theme_light()+
+  labs(title = "Absolutna Wielkość Gwiazdowa",
+       x = "Absolutna Wielokość Gwiazdowa",
+       y = "Ilość")
+```
+
+Możemy zauważyć, że wartości nie gromadzą się wokół średniej (0), ale najwięcej ich jest w przedziałach [-10, -5] oraz [10, 18]. Zatem powinniśmy mieć do czynienia przede wszystkim z gwiazdami dosyć mocno jasnymi (wartości ujemne) oraz bardzo mało jasnymi (spore wartości dodatnie, bliskie 30).
+
+Teraz popatrzymy na zmienne jakościowe, typu factor, nie możemy o nich nic więcej powiedzieć poza ich ilością w konkretnych grupach:
+- Typ
+```{r}
+summary(stars$Typ)
+```
+
+Danych jest po równo z każdego typu od 0 do 5.
+
+- Kolor
+```{r}
+summary(stars$Kolor)
+```
+
+W kwestii kolorystyki, przeważają gwiazdy koloru czerwonego oraz niebieskiego.
+
+- Typ Spektralny
+```{r}
+summary(stars$Typ_Spektralny)
+```
+
+Najwięcej obserwacji jest Typu Spektralnego M, B oraz O, czyli skrajnych (najzimniejszych i najgorętszych gwiazd).
+
+
+# Wstępne zależności między zmiennymi ilościowymi
+Przy użyciu funkcji `cor()` oraz `corrplot()` z pakietu `corrplot` możemy w ciekawy sposób zobrazować wstępnie zależności pomiędzy zmiennymi ilościowymi:
+```{r}
+cor <- cor(stars[,c("Jasność", "Temperatura", "Abs_Wielk_Gwiazd", "Promień")],
+           method = "spearman")
+round(cor, 2)
+
+corrplot(cor, method = "color", type = "upper") #duża korelacja m.in. pomiedzy promieniem a jasnoscia
+```
+
+Możemy zauważyć, że istnieją duże zależności pomiędzy niektórymi zmiennymi, zatem w następnych krokach zajmiemy się ich zwizualizowaniem oraz zastanowieniem się dlaczego takie zależności mają miejsce.
+
+# Pierwsze pytanie
+Zastanowimy się czy istnieje zależność między zmiennymi Jasność i Absolutna Wielkość Gwiazdowa? (według teorii, im gwiazda jest mniej jasna, tym ma wyższą Absolutną Wielkość Gwiazdową)
+```{r}
+stars %>%
+  ggplot() +
+  geom_point(mapping = aes(x = Jasność, y = Abs_Wielk_Gwiazd), 
+             alpha = 0.4,
+             color = "darkgreen")+
+  theme_light()+
+  labs(title = "Jasność a Absolutna Wielkość Gwiazdowa",
+       x = "Jasność",
+       y = "Absolutna Wielkość Gwiazdowa")
+```
+
+Wygląda na to, że występuje taka zależność (Przy dużej Jasności występują małe Temperatury i na odwrót), sprawdźmy zatem korelację tych zmiennych za pomocą korelacji Spearmana, ponieważ zmienne nie mają rozkładu normalnego, więc nie skorzystamy z korelacji Pearsona:
+```{r}
+cor(stars$Jasność, stars$Abs_Wielk_Gwiazd, method = "spearman")
+```
+Duża ujemna korelacja, co oznacza, że faktycznie te zmienne są w przybliżeniu odwrotnie proporcjonalne, jak wynika z teorii.
+
+# Drugie pytanie
+Następnie zastanowimy się czy istnieje związek pomiędzy temperaturą gwiazdy a jej jasnością? (W teorii im gwiazda jest gorętsza, tym powinna być jaśniejsza)
+```{r}
+stars %>%
+  ggplot() +
+  geom_point(mapping = aes(x = Jasność, y = Temperatura, col = Typ_Spektralny))+
+  theme_light()+
+  labs(title = "Jasność a Temperatura",
+       caption = "najgorętsze - O, B, A, F, G, K, M - najchłodniejsze")
+```
+
+Jak możemy zauważyć, gwiazdy o typie **O** oraz **B**, jako najgorętsze, faktycznie cechują się najwyższą jasnością, jednak ciekawe wydają się gwiazdy o typie **M**, pomimo najniższych temperatur spośród wszystkich typów, niektóre osiągają stosunkowo wysokie jasności, zbadamy to głębiej:
+```{r}
+stars %>%
+  filter(Typ_Spektralny %in% c("M")) %>%
+  ggplot() +
+  geom_point(mapping = aes(x = Jasność, y = Temperatura, col = Typ), size = 2)+
+  theme_light()+
+  labs(title = "Jasność a Temperatura dla typu M")
+```
+
+Możemy zauważyć dlaczego doszło do takiej sytuacji, temperatura nie jest jedynym czynnikiem, który wpływa na jasność gwiazd, ale duże znaczenie ma także jej rozmiar. Możemy dostrzec, że obserwacje w kolorach niebieskim i fioletowym to tzw. Giganty i Supergiganty, więc pomimo niskiej temperatury, te gwiazdy są bardzo jasne.
+
+# Trzecie pytanie
+Sprawdzimy to w kolejnym kroku, czyli czy rozmiar wpływa na jasność gwiazdy:
+```{r}
+stars %>%
+  ggplot() +
+  geom_point(aes(x = Promień, y = Jasność, col = Typ_Spektralny), size = 2)+
+  theme_light()+
+  labs(title = "Promień a Jasność",
+       caption = "najgorętsze - O, B, A, F, G, K, M - najchłodniejsze")
+```
+
+Możemy zauważyć, że faktycznie na jasność wpływa zarówno temperatura (bo np. gwiazdy typu **O**(kolor różowy), mające mały promień, poprzez swoją wysoką temperaturę osiągają dużą jasność) jak i promień, czyli rozmiar gwiazdy (bo np. gwiazdy typu **M**(kolor fioletowy), pomimo, że są chłodne, to większy rozmiar jest w stanie wpłynąć na większą jasność).
+```{r}
+cor(stars$Jasność, stars$Promień, method = "spearman") #korelacja, bardzo duża
+```
+
+# Czwarte pytanie
+Zastanowimy się w takim razie nad zależnością temperatury i Promienia, czyli czy jeśli gwiazda jest, np. duża to czy można określić jej typową temperaturę.
+
+```{r}
+stars %>%
+  ggplot()+
+  geom_point(mapping = aes(x = Promień, y = Temperatura), 
+             color = "darkblue",
+             alpha = 0.2)+
+  theme_light()+
+  labs(title = "Promień a Temperatura")
+```
+
+Wstępnie patrząc, ciężko jest dostrzec jakąś zależność. Spróbujemy przy użyciu korelacji Spearmana:
+```{r}
+cor(stars$Temperatura, stars$Promień, method = "spearman")
+```
+
+Korelacja jest niska, co można zauważyć po wykresie, zatem Temperatura ma małe powiązanie z wielkością gwiazdy, czyli jej Promieniem.
+
+# Piąte pytanie
+Poniżej zajmiemy się sprawdzeniem, czy kolory można przyporządkowywać do konkretnych Typów Spektralnych gwiazd.
+```{r}
+stars%>%
+  ggplot()+
+  geom_bar(aes(y = Kolor, fill = Typ_Spektralny))+
+  theme_light()+
+  labs(title = "Kolor gwiazdy a jej Typ Spektralny",
+       x = "Ilość",
+       fill = "Typ Spektralny",
+       caption = "najgorętsze - O, B, A, F, G, K, M - najchłodniejsze")
+```
+
+Na wykresie widać, że kolorystyka niebieska zdecydowanie przeważa u gwiazd najgorętszych (typu O i B), natomiast czerwona u gwiazd najchłodniejszych (typu M). Natomiast kolorystyka pośrednia, czyli pochodne żółtego, pomarańczowego oraz białego występują w typach gwiazd średnich, jeśli chodzi o temperaturę (F, G, K).
+
+# Szóste pytanie
+Ciekawa może okazać się również zależność pomiędzy Typem gwiazdy, a jej Typem Spektralnym.
+```{r}
+stars %>%
+  ggplot() +
+  geom_bar(aes(x = Typ_Spektralny, fill = Typ), 
+           position = "dodge2")+
+  theme_light()+
+  labs(title = "Typ gwiazdy, a jej Typ Spektralny",
+       x = "Typ Spektralny",
+       y = "Ilość",
+       caption = "najgorętsze - O, B, A, F, G, K, M - najchłodniejsze")
+```
+
+Jak możemy zauważyć, najwięcej obserwacji jest typu **M** i w większości są to małe gwiazdy o Typie **0** lub **1**, jednakże jest też część obserwacji o dużych rozmiarach. Możemy ponownie zobaczyć, że rozmiar gwiazdy nie zawsze musi mieć związek z jej temperaturą, np. gwiazdy chłodne są w większości małe, jednak część z nich jest dużych rozmiarów. Zatem możemy stwierdzić, że na podstawie tego zestawu danych, nie jesteśmy w stanie dokładnie powiązać zależności pomiędzy Typem gwiazdy a jej Typem Spektralnym, co najwyżej z dość wysokim prawdopodobieństwem jesteśmy w stanie stwierdzić, że gwiazdy najgorętsze o typach **O** i **B** są dużych rozmiarów.
+
+```{r}
+table(stars$Typ, stars$Typ_Spektralny)
+```
+
+Można również zobaczyć ile występuje gwiazd o konkretnych typach w powyższej tabelce.
+
+# Siódme pytanie
+Sprawdźmy następnie jakie Typy gwiazd charakteryzują się największą Temperaturą, Promieniem lub Jasnością:
+
+- Temperatura
+```{r}
+stars %>%
+  group_by(Typ) %>%
+  top_n(2, Temperatura) %>%
+  arrange(Typ, Temperatura )%>%
+  select(Temperatura, Typ, Typ_Spektralny, Kolor)
+```
+
+Zgodnie z przypuszczeniami, najwyższymi temperaturami cechują się gwiazdy Typu Spektralnego **O** oraz **B**, a w dodatku gwiazdy o Typach **4** i **5**, czyli o największych rozmiarach. 
+
+- Jasność
+```{r}
+stars %>%
+  group_by(Typ) %>%
+  top_n(2, Jasność) %>%
+  arrange(Typ, Jasność)%>%
+  select(Jasność, Typ, Typ_Spektralny, Kolor)
+```
+
+Podobnie jak w przypadku Temperatury najwyższą jasnością cechują się gwiazdy Typu Spektralnego **O** oraz **B**, a w dodatku gwiazdy o Typach **4** i **5**, czyli o największych rozmiarach. Dość duża różnica w jasności jest dostrzegalna pomiędzy gwiazdami typu **2** i **3**.
+
+- Promień
+```{r}
+stars %>%
+  group_by(Typ) %>%
+  top_n(2, Promień) %>%
+  arrange(Typ, Promień)%>%
+  select(Promień, Typ, Typ_Spektralny, Kolor)
+```
+
+Jak można było się domyślić największe są gwiazdy typu **4** i **5**, wiąże się to bezpośrednio z tym, że badany przez nas Typ jest oparty przede wszystkim na wielkości gwiazd.
+
+# Ósme pytanie
+Jaka jest zależność pomiędzy Kolorem gwiazdy a jej Temperaturą?
+```{r}
+stars %>%
+  group_by(Kolor)%>%
+  summarise(Minimum = min(Temperatura),
+            Średnia = mean(Temperatura),
+            Maksimum = max(Temperatura))%>%
+  arrange(desc(Średnia))
+```
+
+Jak możemy zauważyć, średnio najwyższe temperatury osiągają gwiazdy o kolorze Niebieskim, a najniższe o kolorze Czerwonym.
+
+Jest to ciekawa zależność związana z długością fal wysyłanych przez obiekty emitujące ciepło, otóż gwiazdy o wyższych temperaturach (gorące) emitują więcej energii w krótkich długościach fal, co skutkuje niebieskim lub białym światłem, natomiast gwiazdy o niższych temperaturach (zimne) emitują więcej energii w dłuższych długościach fal, co objawia się czerwonym lub pomarańczowym światłem. Zatem widzimy, że teoria zgadza się z praktyką.
+
+
+
+
